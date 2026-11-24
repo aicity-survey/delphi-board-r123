@@ -530,6 +530,7 @@ function vR3() {
     <div class="card"><h3>가중치 (2차)</h3><p class="sub">CR ≤ 0.1 통합</p>${hbars(r2.W.map((w, k) => ({ label: M.crit2[k].name, v: w * 100 })), 50, x => f(x, 1) + '%')}</div>
   </div>`;
   const cnt = statusCount(r3), tot = r3.status.length, sub = r3.subIds.size;
+  const n2s = r3.status.filter(x => r2.subIds.has(x['번호'])).length;   // 3차 대상자 중 2차를 제출한 사람
   // 두 차수를 모두 제출한 사람의 응답 변화
   const both = [...r3.subIds].filter(id => r2.subIds.has(id));
   const key = r => r['번호'] + '|' + r['서비스ID']; const m2 = {}; r2.p3.forEach(r => { m2[key(r)] = r; });
@@ -544,7 +545,7 @@ function vR3() {
   return `${sec('3차 조사 현황', `3차 서버 기준 ${info && !isNaN(new Date(info.at)) ? fmtT(new Date(info.at)) : '-'} · 5분마다 다시 읽음`, '<button class="btn" data-act="r3off">3차 연결 끊기</button>')}
   ${S.r3err ? `<div class="notice"><b>알림</b><span>${S.r3err}</span></div>` : ''}
   <div class="grid g4">
-    <div class="card kpi"><div class="label">3차 대상 (2차와 연결된 인원)</div><div class="val">${tot}<small>명</small></div><div class="foot">3차 명단 ${info ? info.total : '-'}줄 중 연결 ${tot}명</div></div>
+    <div class="card kpi"><div class="label">3차 대상자 (2차 명단과 같은 사람)</div><div class="val">${tot}<small>명</small></div><div class="foot">2차 제출 ${n2s}명 · 2차 미제출 ${tot - n2s}명</div></div>
     <div class="card kpi"><div class="label">3차 제출 완료</div><div class="val">${sub}<small>/ ${tot}명</small></div><div class="bar"><i style="width:${tot ? sub / tot * 100 : 0}%;background:var(--ink)"></i><i style="width:${tot ? (cnt['진행 중'] || 0) / tot * 100 : 0}%;background:#8ea3c8"></i></div><div class="foot">응답률 ${pc(tot ? sub / tot * 100 : 0)} · 작성 중 ${cnt['진행 중'] || 0}명</div></div>
     <div class="card kpi"><div class="label">3차 중요도 응답 일관성</div><div class="val">${r3.okSet.length}<small>/ ${r3.indiv.length}명</small></div><div class="foot">CR ≤ 0.1 충족</div></div>
     <div class="card kpi"><div class="label">2차 응답을 그대로 유지한 비율</div><div class="val">${nPair ? f(same / nPair * 100, 1) : '-'}<small>%</small></div><div class="foot">두 차수 모두 제출 ${both.length}명 · 평균 변화 ${nPair ? f(absSum / nPair) : '-'}점</div></div>
@@ -554,7 +555,7 @@ function vR3() {
   ${sec('서비스 순위 변동', '가중 종합점수는 각 차수의 가중치로 계산했습니다.')}${tbl('r3svc', svcCols, svc, { file: '2차3차_서비스_순위변동', maxh: 720 })}
   ${sec('차수 연결 점검', '3차 명단은 번호를 새로 매겼으므로 성명으로 2차 번호에 연결했습니다.')}
   <div class="card"><div class="empty" style="text-align:left;padding:18px 22px;line-height:1.8">
-    연결된 응답자 <b>${info ? info.linked : '-'}명</b> · 연구진 확인용 계정으로 연결되어 집계에서 뺀 3차 번호 ${info && info.testLinked.length ? esc(info.testLinked.join(', ')) : '없음'}<br>
+    3차 명단 ${info ? info.total : '-'}줄 중 2차 대상자와 같은 사람 <b>${info ? info.linked : '-'}명</b> (2차 제출 ${n2s}명, 2차 미제출 ${tot - n2s}명) · 연구진 확인용 계정으로 연결되어 집계에서 뺀 3차 번호 ${info && info.testLinked.length ? esc(info.testLinked.join(', ')) : '없음'}<br>
     2차 명단과 연결하지 못한 3차 번호: ${un.length ? un.map(u => `<b>${esc(u.id3)}</b> (${esc(u.why)})`).join(', ') : '없음'}<br>
     3차 명단에 없는 2차 대상자: ${info && info.missing2.length ? info.missing2.map(id => S.hide ? `<b>${esc(id)}</b>` : who(id)).join(', ') : '없음'}
   </div></div>`;
