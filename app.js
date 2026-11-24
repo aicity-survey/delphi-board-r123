@@ -189,12 +189,15 @@ async function loadR3() {
   } catch (e) { S.r3err = '3차 서버 연결이 원활하지 않습니다. 이전에 읽은 값을 보여 줍니다.'; }
 }
 function pairVal(x) { if (x == null || x === '') return null; if (typeof x === 'number') return x; if (typeof x === 'object') { const v = Number(x.v) || 1; return x.side === 'R' ? 1 / v : x.side === 'E' ? 1 : v; } return Number(x) || null; }
-function adaptR3(d, roster2) {
+function adaptR3(d, roster2, status2) {
   const iNo = roster2.head.indexOf('번호'), iNm = roster2.head.indexOf('성명'); const byName = {};
   roster2.rows.forEach(r => { const n = normName(r[iNm]); if (n) (byName[n] = byName[n] || []).push(String(r[iNo])); });
   const link = {}, unlinked = [], used = {};
   d.roster.rows.forEach(r => { const id3 = String(r[0]); const fix = CFG.r3LinkFix && CFG.r3LinkFix[id3]; const c = fix ? [fix] : (byName[normName(r[1])] || []); if (c.length === 1) { link[id3] = c[0]; (used[c[0]] = used[c[0]] || []).push(id3); } else unlinked.push({ id3, why: c.length ? '같은 이름이 2차 명단에 여럿' : '2차 명단에 없는 이름' }); });
   Object.entries(used).forEach(([id2, arr]) => { if (arr.length > 1 && !isTest(id2)) arr.forEach(id3 => { delete link[id3]; unlinked.push({ id3, why: '3차 명단에 같은 이름이 여럿' }); }); });
+  // 3차 대상은 2차를 제출한 사람만이다. 2차 미제출자는 3차 명단에 있어도 대상과 집계에서 뺀다.
+  const excluded = []; if (status2 && status2.rows) { const a2 = status2.head.indexOf('번호'), b2 = status2.head.indexOf('상태'); const sub2 = new Set(status2.rows.filter(r => r[b2] === '제출 완료').map(r => String(r[a2])));
+    d.roster.rows.forEach(r => { const id3 = String(r[0]), id2 = link[id3]; if (id2 && !isTest(id2) && !sub2.has(id2)) { excluded.push({ id3, id2, st3: String(r[3] || '') }); delete link[id3]; } }); }
   const testLinked = Object.entries(link).filter(([, id2]) => isTest(id2)).map(([id3]) => id3);
   const status = { head: ['번호', '성명', '소속', '상태', '진행률', '최근 저장', '제출 시각', '3차번호'], rows: d.roster.rows.filter(r => link[String(r[0])]).map(r => [link[String(r[0])], r[1], r[2], r[3], r[4], r[5], r[6], String(r[0])]) };
   const p2 = { head: ['번호', '제출 시각'].concat(PK, ['CR']), rows: [] }, p3 = { head: ['번호', '서비스ID'].concat(R2, ['의견']), rows: [] };
@@ -204,12 +207,12 @@ function adaptR3(d, roster2) {
     Object.keys(r.p3).forEach(sid => { const q = r.p3[sid] || {}; p3.rows.push([id2, sid].concat(R3.map(k => (q[k] == null || q[k] === '' ? null : Number(q[k]))), [String(r.p3note[sid] || '')])); });
   });
   const stCount = {}; d.roster.rows.forEach(r => { stCount[r[3]] = (stCount[r[3]] || 0) + 1; });
-  return { tables: { r3status: status, r3p2: p2, r3p3: p3 }, info: { at: d.generatedAt, total: d.roster.rows.length, linked: status.rows.filter(r => !isTest(r[0])).length, testLinked, unlinked, stCount, missing2: roster2.rows.map(r => String(r[iNo])).filter(id => !isTest(id) && !used[id]) } };
+  return { tables: { r3status: status, r3p2: p2, r3p3: p3 }, info: { at: d.generatedAt, total: d.roster.rows.length, linked: status.rows.filter(r => !isTest(r[0])).length, testLinked, unlinked, excluded, stCount, missing2: roster2.rows.map(r => String(r[iNo])).filter(id => !isTest(id) && !used[id]) } };
 }
 function mergeR3() {
   S.r3info = null;
   if (!S.r3raw || !S.raw || !S.raw.tables || !S.raw.tables.roster) return;
-  const a = adaptR3(S.r3raw, S.raw.tables.roster); Object.assign(S.raw.tables, a.tables); S.r3info = a.info;
+  const a = adaptR3(S.r3raw, S.raw.tables.roster, S.raw.tables.status); Object.assign(S.raw.tables, a.tables); S.r3info = a.info;
 }
 
 /* ---------- 서버 ---------- */
@@ -530,7 +533,7 @@ function vR3() {
     <div class="card"><h3>가중치 (2차)</h3><p class="sub">CR ≤ 0.1 통합</p>${hbars(r2.W.map((w, k) => ({ label: M.crit2[k].name, v: w * 100 })), 50, x => f(x, 1) + '%')}</div>
   </div>`;
   const cnt = statusCount(r3), tot = r3.status.length, sub = r3.subIds.size;
-  const n2s = r3.status.filter(x => r2.subIds.has(x['번호'])).length;   // 3차 대상자 중 2차를 제출한 사람
+  const ex = info && info.excluded ? info.excluded : [], nEx = ex.length;   // 2차 미제출이라 3차 대상에서 뺀 사람
   // 두 차수를 모두 제출한 사람의 응답 변화
   const both = [...r3.subIds].filter(id => r2.subIds.has(id));
   const key = r => r['번호'] + '|' + r['서비스ID']; const m2 = {}; r2.p3.forEach(r => { m2[key(r)] = r; });
@@ -545,7 +548,7 @@ function vR3() {
   return `${sec('3차 조사 현황', `3차 서버 기준 ${info && !isNaN(new Date(info.at)) ? fmtT(new Date(info.at)) : '-'} · 5분마다 다시 읽음`, '<button class="btn" data-act="r3off">3차 연결 끊기</button>')}
   ${S.r3err ? `<div class="notice"><b>알림</b><span>${S.r3err}</span></div>` : ''}
   <div class="grid g4">
-    <div class="card kpi"><div class="label">3차 대상자 (2차 명단과 같은 사람)</div><div class="val">${tot}<small>명</small></div><div class="foot">2차 제출 ${n2s}명 · 2차 미제출 ${tot - n2s}명</div></div>
+    <div class="card kpi"><div class="label">3차 대상자 (2차 제출자)</div><div class="val">${tot}<small>명</small></div><div class="foot">3차 명단 ${info ? info.total : '-'}줄 · 2차 미제출 ${nEx}명은 대상에서 제외</div></div>
     <div class="card kpi"><div class="label">3차 제출 완료</div><div class="val">${sub}<small>/ ${tot}명</small></div><div class="bar"><i style="width:${tot ? sub / tot * 100 : 0}%;background:var(--ink)"></i><i style="width:${tot ? (cnt['진행 중'] || 0) / tot * 100 : 0}%;background:#8ea3c8"></i></div><div class="foot">응답률 ${pc(tot ? sub / tot * 100 : 0)} · 작성 중 ${cnt['진행 중'] || 0}명</div></div>
     <div class="card kpi"><div class="label">3차 중요도 응답 일관성</div><div class="val">${r3.okSet.length}<small>/ ${r3.indiv.length}명</small></div><div class="foot">CR ≤ 0.1 충족</div></div>
     <div class="card kpi"><div class="label">2차 응답을 그대로 유지한 비율</div><div class="val">${nPair ? f(same / nPair * 100, 1) : '-'}<small>%</small></div><div class="foot">두 차수 모두 제출 ${both.length}명 · 평균 변화 ${nPair ? f(absSum / nPair) : '-'}점</div></div>
@@ -553,10 +556,11 @@ function vR3() {
   ${sub < 30 ? `<div class="notice"><b>참고</b><span>3차 제출이 ${sub}명입니다. 응답이 충분히 모이기 전의 가중치와 순위는 참고용으로만 보십시오.</span></div>` : ''}
   ${sec('2차 → 3차 평가항목 가중치 변화', '3차는 평가항목 적절성을 묻지 않고 중요도와 서비스 평가만 다시 묻습니다.')}${tbl('r3cmp', cmpCols, cmp, { file: '2차3차_가중치_비교' })}
   ${sec('서비스 순위 변동', '가중 종합점수는 각 차수의 가중치로 계산했습니다.')}${tbl('r3svc', svcCols, svc, { file: '2차3차_서비스_순위변동', maxh: 720 })}
-  ${sec('차수 연결 점검', '3차 명단은 번호를 새로 매겼으므로 성명으로 2차 번호에 연결했습니다.')}
+  ${sec('차수 연결 점검', '3차 명단은 번호를 새로 매겼으므로 성명으로 2차 번호에 연결했습니다. 2차를 제출한 사람만 3차 대상으로 셉니다.')}
   <div class="card"><div class="empty" style="text-align:left;padding:18px 22px;line-height:1.8">
-    3차 명단 ${info ? info.total : '-'}줄 중 2차 대상자와 같은 사람 <b>${info ? info.linked : '-'}명</b> (2차 제출 ${n2s}명, 2차 미제출 ${tot - n2s}명) · 연구진 확인용 계정으로 연결되어 집계에서 뺀 3차 번호 ${info && info.testLinked.length ? esc(info.testLinked.join(', ')) : '없음'}<br>
+    3차 명단 ${info ? info.total : '-'}줄 중 3차 대상자(2차 제출자) <b>${info ? info.linked : '-'}명</b> · 연구진 확인용 계정으로 연결되어 집계에서 뺀 3차 번호 ${info && info.testLinked.length ? esc(info.testLinked.join(', ')) : '없음'}<br>
     2차 명단과 연결하지 못한 3차 번호: ${un.length ? un.map(u => `<b>${esc(u.id3)}</b> (${esc(u.why)})`).join(', ') : '없음'}<br>
+    2차 미제출이라 3차 대상에서 뺀 사람: ${nEx ? ex.map(u => (S.hide ? `<b>${esc(u.id2)}</b>` : who(u.id2)) + ` (3차 ${esc(u.id3)}, ${esc(u.st3 || '미접속')})`).join(', ') : '없음'}<br>
     3차 명단에 없는 2차 대상자: ${info && info.missing2.length ? info.missing2.map(id => S.hide ? `<b>${esc(id)}</b>` : who(id)).join(', ') : '없음'}
   </div></div>`;
 }
